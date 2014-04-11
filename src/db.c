@@ -91,7 +91,7 @@
             operation ->errorString = malloc(strlen(error)+1); \
             strcpy( operation ->errorString,  error); \
             func; \
-            return; \
+            return 0; \
         }
 
 
@@ -238,6 +238,7 @@
         //TODO: fix error handling
         uv_async_send(&connection->async);
 
+        unsigned char didGetInfo = 0;
         do
         {
             if(queryResult->queryResult != NULL)
@@ -269,30 +270,34 @@
                 }
             }
 
-            queryResult->columnCount = odbx_column_count(queryResult->queryResult);
-            queryResult->affectedCount = odbx_rows_affected(queryResult->queryResult);
-
-            if(queryResult->columns == NULL)
+            if(didGetInfo == 0)
             {
-                {
-                    size_t len = sizeof(odbxuv_column_info_t) * queryResult->columnCount;
-                    queryResult->columns = malloc(len);
-                    memset(queryResult->columns, 0, len); //TODO: manually init with 0 if we need it ?
-                }
+                didGetInfo = 1;
+                queryResult->columnCount = odbx_column_count(queryResult->queryResult);
+                queryResult->affectedCount = odbx_rows_affected(queryResult->queryResult);
 
-                int i;
-                for(i = 0; i < queryResult->columnCount; i++)
+                if(queryResult->columns == NULL)
                 {
-                    if(flags & ODBXUV_QUERY_FETCH_NAME)
                     {
-                        const char *name = odbx_column_name(queryResult->queryResult, i);
-
-                        queryResult->columns[i].name = malloc(strlen(name)+1);
-                        strcpy(queryResult->columns[i].name, name);
+                        size_t len = sizeof(odbxuv_column_info_t) * queryResult->columnCount;
+                        queryResult->columns = malloc(len);
+                        memset(queryResult->columns, 0, len); //TODO: manually init with 0 if we need it ?
                     }
-                    if(flags & ODBXUV_QUERY_FETCH_TYPE)
+
+                    int i;
+                    for(i = 0; i < queryResult->columnCount; i++)
                     {
-                        queryResult->columns[i].type = odbx_column_type(queryResult->queryResult, i);
+                        if(flags & ODBXUV_QUERY_FETCH_NAME)
+                        {
+                            const char *name = odbx_column_name(queryResult->queryResult, i);
+
+                            queryResult->columns[i].name = malloc(strlen(name)+1);
+                            strcpy(queryResult->columns[i].name, name);
+                        }
+                        if(flags & ODBXUV_QUERY_FETCH_TYPE)
+                        {
+                            queryResult->columns[i].type = odbx_column_type(queryResult->queryResult, i);
+                        }
                     }
                 }
             }
@@ -365,18 +370,22 @@
                     }
 
                     MAKE_ODBX_ERR(op, result, {
-
+                        
                     });
 
                     continue;
                     break;
 
+                default: //Assert on this?
                 case ODBX_RES_NOROWS:
                 case ODBX_RES_DONE:
+                    goto escape;
                     break;
             }
         }
-        while(0);
+        while(1);
+
+        escape:
 
         if(queryResult->queryResult != NULL)
         {
@@ -620,23 +629,29 @@
         result->cb(result, NULL);
     }
 
-    static void _query_process_cb(uv_async_t* handle, int status)
+    static void _query_process_cb_real(odbxuv_result_t *result)
     {
-        //TODO: run read callbacks here
-        odbxuv_result_t *result = (odbxuv_result_t *)handle->data;
         odbxuv_row_t *row = result->row;
-
+        
         while(row)
         {
             result->cb(result, row);
             row = row->next;
         }
 
-        if(result->finished)
+        if(result->finished == 1)
         {
+            result->finished = 2;
             //Clean up async
             uv_close((uv_handle_t *)&result->async, _close_process);
         }
+    }
+
+    static void _query_process_cb(uv_async_t* handle, int status)
+    {
+        //TODO: run read callbacks here
+        odbxuv_result_t *result = (odbxuv_result_t *)handle->data;
+        _query_process_cb_real(result);
     }
 
     int odbxuv_query_process(odbxuv_result_t *result, odbxuv_fetch_cb onQueryRow)
@@ -689,6 +704,11 @@
 
     void odbxuv_op_query_free_query(odbxuv_op_query_t* op)
     {
+        if(op->queryResult && op->queryResult->finished)
+        {
+            _query_process_cb_real(op->queryResult);
+        }
+
         if(op->query)
         {
             free((void *)op->query);

@@ -89,7 +89,7 @@ void onEscape(odbxuv_op_escape_t *req, int status)
     for(; i < 10; i++)
     {
         odbxuv_op_query_t *op = (odbxuv_op_query_t *)malloc(sizeof(odbxuv_op_query_t));
-        const char *string = "SHOW DATABASES";
+        const char *string = "SELECT * FROM test;";
         odbxuv_result_t *result = malloc(sizeof(odbxuv_result_t));
         odbxuv_init_query(op, result, ~0);
         odbxuv_query(req->connection, op, string, onQuery);
@@ -159,13 +159,13 @@ int main()
 
     odbxuv_op_connect_t op;
 
-    op.backend = "mysql";
-    op.host = "192.168.1.190";
+    op.backend = "sqlite3";
+    op.host = "";
     op.port = "";
 
-    op.database = "test";
-    op.user = "test";
-    op.password = "test";
+    op.database = "test.sqlite";
+    op.user = "";
+    op.password = "";
 
     op.method = ODBX_BIND_SIMPLE;
 
