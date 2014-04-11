@@ -81,7 +81,10 @@
         }
     }
 
-
+    /**
+     * \internal
+     * \private
+     */
     #define MAKE_ODBX_ERR(operation, result, func) \
         if(result < ODBX_ERR_SUCCESS) \
         { \
@@ -370,7 +373,7 @@
                     }
 
                     MAKE_ODBX_ERR(op, result, {
-                        
+
                     });
 
                     continue;
@@ -632,7 +635,7 @@
     static void _query_process_cb_real(odbxuv_result_t *result)
     {
         odbxuv_row_t *row = result->row;
-        
+
         while(row)
         {
             result->cb(result, row);
