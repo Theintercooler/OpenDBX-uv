@@ -1,3 +1,0 @@
-[submodule "libraries/uv"]
-	path = libraries/uv
-	url = https://github.com/Theintercooler/libuv.git

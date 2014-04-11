@@ -159,6 +159,7 @@ int main()
 
     odbxuv_op_connect_t op;
 
+    //NOTE: sqlite doesn't seem to generate proper errors.
     op.backend = "sqlite3";
     op.host = "";
     op.port = "";
