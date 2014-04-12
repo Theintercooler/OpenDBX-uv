@@ -72,7 +72,7 @@
                 }
             }
 
-            if(res != ODBXUV_OP_STATUS_COMPLETED && operation->type != ODBXUV_OP_TYPE_DISCONNECT)
+            if(res != ODBXUV_OP_STATUS_COMPLETED && operation->type != ODBXUV_HANDLE_TYPE_OP_DISCONNECT)
             {
                 break;
             }
@@ -153,7 +153,7 @@
     {
         int result;
         odbxuv_op_connect_t *op = (odbxuv_op_connect_t *)req;
-        assert(op->type == ODBXUV_OP_TYPE_CONNECT);
+        assert(op->type == ODBXUV_HANDLE_TYPE_OP_CONNECT);
 
         result = odbx_init(&op->connection->handle, op->backend, op->host, op->port);
 
@@ -181,7 +181,7 @@
     {
         int result;
         odbxuv_op_disconnect_t *op = (odbxuv_op_disconnect_t *)req;
-        assert(op->type == ODBXUV_OP_TYPE_DISCONNECT);
+        assert(op->type == ODBXUV_HANDLE_TYPE_OP_DISCONNECT);
 
         result = odbx_unbind(req->connection->handle);
 
@@ -207,7 +207,7 @@
     {
         int result;
         odbxuv_op_capabilities_t *op = (odbxuv_op_capabilities_t *)req;
-        assert(op->type == ODBXUV_OP_TYPE_CAPABILITIES);
+        assert(op->type == ODBXUV_HANDLE_TYPE_OP_CAPABILITIES);
 
         result = odbx_capabilities(op->connection->handle, op->capabilities);
 
@@ -224,7 +224,7 @@
     {
         int result;
         odbxuv_op_query_t *op = (odbxuv_op_query_t *)req;
-        assert(op->type == ODBXUV_OP_TYPE_QUERY);
+        assert(op->type == ODBXUV_HANDLE_TYPE_OP_QUERY);
 
         result = odbx_query(op->connection->handle, op->query, 0);
 
@@ -413,7 +413,7 @@
     {
         int result;
         odbxuv_op_escape_t *op = (odbxuv_op_escape_t *)req;
-        assert(op->type == ODBXUV_OP_TYPE_ESCAPE);
+        assert(op->type == ODBXUV_HANDLE_TYPE_OP_ESCAPE);
 
         unsigned long inlen = strlen(op->string);
         unsigned long outlen = 2 * (inlen+1);
@@ -547,7 +547,7 @@
         }
 
 
-        _init_op(ODBXUV_OP_TYPE_CONNECT, (odbxuv_op_t *)operation, connection, _op_connect, (odbxuv_op_cb)callback);
+        _init_op(ODBXUV_HANDLE_TYPE_OP_CONNECT, (odbxuv_op_t *)operation, connection, _op_connect, (odbxuv_op_cb)callback);
 
         _con_add_op(connection, (odbxuv_op_t *)operation);
 
@@ -562,7 +562,7 @@
 
         memset(operation, 0, sizeof(&operation));
 
-        _init_op(ODBXUV_OP_TYPE_DISCONNECT, (odbxuv_op_t *)operation, connection, _op_disconnect, (odbxuv_op_cb)callback);
+        _init_op(ODBXUV_HANDLE_TYPE_OP_DISCONNECT, (odbxuv_op_t *)operation, connection, _op_disconnect, (odbxuv_op_cb)callback);
 
         _con_add_op(connection, (odbxuv_op_t *)operation);
 
@@ -587,7 +587,7 @@
         assert(connection->status == ODBXUV_CON_STATUS_CONNECTED);
 
         memset(operation, 0, sizeof(&operation));
-        _init_op(ODBXUV_OP_TYPE_CAPABILITIES, (odbxuv_op_t *)operation, connection, _op_capabilities, (odbxuv_op_cb)callback);
+        _init_op(ODBXUV_HANDLE_TYPE_OP_CAPABILITIES, (odbxuv_op_t *)operation, connection, _op_capabilities, (odbxuv_op_cb)callback);
 
         operation->capabilities = capabilities;
 
@@ -611,7 +611,7 @@
         assert(connection->status == ODBXUV_CON_STATUS_CONNECTED);
         assert(operation->queryResult != NULL && "Query was not initialized.");
 
-        _init_op(ODBXUV_OP_TYPE_QUERY, (odbxuv_op_t *)operation, connection, _op_query, (odbxuv_op_cb)callback);
+        _init_op(ODBXUV_HANDLE_TYPE_OP_QUERY, (odbxuv_op_t *)operation, connection, _op_query, (odbxuv_op_cb)callback);
 
         char *q = malloc(strlen(query) + 1);
         strcpy(q, query);
@@ -724,7 +724,7 @@
         assert(connection->status == ODBXUV_CON_STATUS_CONNECTED);
 
         memset(operation, 0, sizeof(&operation));
-        _init_op(ODBXUV_OP_TYPE_ESCAPE, (odbxuv_op_t *)operation, connection, _op_escape, (odbxuv_op_cb)callback);
+        _init_op(ODBXUV_HANDLE_TYPE_OP_ESCAPE, (odbxuv_op_t *)operation, connection, _op_escape, (odbxuv_op_cb)callback);
 
         char *q = malloc(strlen(string) + 1);
         strcpy(q, string);

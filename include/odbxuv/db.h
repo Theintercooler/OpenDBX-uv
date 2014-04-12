@@ -66,17 +66,18 @@ extern "C"
      * All the different types of operations
      * Use \p ODBXUV_OP_CUSTOM to add custom operation types
      */
-    typedef enum odbxuv_operation_type_enum
+    typedef enum odbxuv_handle_type_enum
     {
-        ODBXUV_OP_TYPE_NONE = 0,
-        ODBXUV_OP_TYPE_CONNECT,
-        ODBXUV_OP_TYPE_DISCONNECT,
-        ODBXUV_OP_TYPE_CAPABILITIES,
-        ODBXUV_OP_TYPE_QUERY,
-        ODBXUV_OP_TYPE_FETCH,
-        ODBXUV_OP_TYPE_ESCAPE,
-        ODBXUV_OP_TYPE_CUSTOM,
-    } odbxuv_operation_type_e;
+        ODBXUV_HANDLE_TYPE_NONE = 0,
+        ODBXUV_HANDLE_TYPE_CONNECTION,
+        ODBXUV_HANDLE_TYPE_OP_CONNECT,
+        ODBXUV_HANDLE_TYPE_OP_DISCONNECT,
+        ODBXUV_HANDLE_TYPE_OP_CAPABILITIES,
+        ODBXUV_HANDLE_TYPE_OP_QUERY,
+        ODBXUV_HANDLE_TYPE_OP_FETCH,
+        ODBXUV_HANDLE_TYPE_OP_ESCAPE,
+        ODBXUV_HANDLE_TYPE_OP_CUSTOM,
+    } odbxuv_handle_type_e;
 
     /**
      * All the different statuses an operation can be in.
@@ -104,12 +105,32 @@ extern "C"
      * \{
      */
 
+    #define ODBXUV_HANDLE_BASE_FIELDS           \
+        /**                                     \
+         * The type of the handle               \
+         * \note Read only                      \
+         */                                     \
+        odbxuv_handle_type_e type;           \
+        /**                                     \
+         * Userdata                             \
+         * \public                              \
+         */                                     \
+         void *data;
+
+
+    typedef struct odbxuv_handle_s
+    {
+        ODBXUV_HANDLE_BASE_FIELDS
+    } odbxuv_handle_t;
+
     /**
      * A connection object.
      * This represents the connection to the database and contains all the worker information.
      */
     typedef struct odbxuv_connection_s
     {
+        ODBXUV_HANDLE_BASE_FIELDS
+
         /**
          * The current status of the connection.
          * \note Read only
@@ -150,12 +171,6 @@ extern "C"
          * \note Read only
          */
         odbxuv_worker_status_e workerStatus;
-
-        /**
-         * Userdata
-         * \public
-         */
-        void *data;
     } odbxuv_connection_t;
 
 
@@ -233,11 +248,7 @@ extern "C"
      * \private
      */
     #define ODBXUV_OP_BASE_FIELDS               \
-        /**                                     \
-         * The type of the operation            \
-         * \note Read only                      \
-         */                                     \
-        odbxuv_operation_type_e type;           \
+        ODBXUV_HANDLE_BASE_FIELDS                 \
         \
         /**                                     \
          * The current status of the operation  \
@@ -287,12 +298,6 @@ extern "C"
          * \private                             \
          */                                     \
         odbxuv_op_cb callback;                  \
-        \
-        /**                                     \
-         * Userdata                             \
-         * \public                              \
-         */                                     \
-        void *data;
 
 
     /**
