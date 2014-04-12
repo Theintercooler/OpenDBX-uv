@@ -128,6 +128,7 @@ void onConnect(odbxuv_op_connect_t *req, int status)
     {
         printf("Connect status: %i (%i)-> %s\n", status, req->errorType, req->errorString);
         odbxuv_free_error((odbxuv_op_t *)req);
+        odbxuv_unref_connection(req->connection);
     }
     else
     {
@@ -164,7 +165,7 @@ int main()
     op.host = "";
     op.port = "";
 
-    op.database = "test.sqlite";
+    op.database = "./test.sqlite";
     op.user = "";
     op.password = "";
 
