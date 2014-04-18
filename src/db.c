@@ -57,7 +57,7 @@
 
         while(operation)
         {
-            int res;
+            int res = ODBXUV_OP_STATUS_COMPLETED;
             odbxuv_op_t *next = operation->next;
             if(operation->status == ODBXUV_OP_STATUS_NOT_STARTED)
             {
