@@ -93,6 +93,18 @@ extern "C"
         ODBXUV_OP_STATUS_COMPLETED,
     } odbxuv_operation_status_e;
 
+    typedef enum odbxuv_fetch_status_enum
+    {
+        ODBXUV_FETCH_STATUS_NONE = 0,
+        ODBXUV_FETCH_STATUS_RUNNING,
+        ODBXUV_FETCH_STATUS_ERROR_BEFORE,
+        ODBXUV_FETCH_STATUS_ERROR_RESULT,
+        ODBXUV_FETCH_STATUS_ERROR_FETCH,
+        ODBXUV_FETCH_STATUS_ERROR_FINISH,
+        ODBXUV_FETCH_STATUS_FINISHED,
+        ODBXUV_FETCH_STATUS_CANCELLED
+    } odbxuv_fetch_status_e;
+
     /**
      * \}
      * \}
@@ -105,17 +117,44 @@ extern "C"
      * \{
      */
 
+    typedef struct odbxuv_error_s
+    {
+        /**
+         * The current status/error code
+         * \note Read only
+         */
+        int error;
+
+         /**
+          * The type of the error
+          * \note Read only
+          */
+        int errorType;
+
+        /**
+         * The current error string or \p NULL
+         * \note Read only
+         * \sa odbxuv_free_error
+         */
+        char *errorString;
+    } odbxuv_error_t;
+
     #define ODBXUV_HANDLE_BASE_FIELDS           \
         /**                                     \
          * The type of the handle               \
          * \note Read only                      \
          */                                     \
-        odbxuv_handle_type_e type;           \
+        odbxuv_handle_type_e type;              \
         /**                                     \
          * Userdata                             \
          * \public                              \
          */                                     \
-         void *data;
+         void *data;                            \
+         /**                                    \
+          * Error info                          \
+          * \public                             \
+          */                                    \
+        odbxuv_error_t *error;
 
 
     typedef struct odbxuv_handle_s
@@ -175,13 +214,11 @@ extern "C"
 
 
 
-    typedef struct odbxuv_op_s odbxuv_op_t;
     typedef struct odbxuv_op_connect_s odbxuv_op_connect_t;
     typedef struct odbxuv_op_disconnect_s odbxuv_op_disconnect_t;
     typedef struct odbxuv_op_capabilities_s odbxuv_op_capabilities_t;
     typedef struct odbxuv_op_escape_s odbxuv_op_escape_t;
     typedef struct odbxuv_op_query_s odbxuv_op_query_t;
-    typedef struct odbxuv_result_s odbxuv_result_t;
     typedef struct odbxuv_row_s odbxuv_row_t;
     typedef struct odbxuv_column_info_s odbxuv_column_info_t;
     /**
@@ -239,7 +276,12 @@ extern "C"
      * Is called with NULL as row after the last row
      * \warning Make sure you cleanup the result using ::odbxuv_result_free and free when row is NULL
      */
-    typedef void (*odbxuv_fetch_cb) (odbxuv_result_t *result, odbxuv_row_t *row);
+    typedef void (*odbxuv_fetch_cb) (odbxuv_op_query_t *result, odbxuv_row_t *row, int status);
+
+    /**
+     * Closing callback called when the hande has been closed and it is safe to free
+     */
+    typedef void (*odbxuv_close_cb) (odbxuv_handle_t *);
 
 
     /**
@@ -255,25 +297,6 @@ extern "C"
          * \note Read only                      \
          */                                     \
         odbxuv_operation_status_e status;       \
-        \
-        /**                                     \
-         * The current status/error code        \
-         * \note Read only                      \
-         */                                     \
-        int error;                              \
-        \
-        /**                                     \
-         * The type of the error                \
-         * \note Read only                      \
-         */                                     \
-        int errorType;                          \
-        \
-        /**                                     \
-         * The current error string or \p NULL  \
-         * \note Read only                      \
-         * \sa odbxuv_free_error                \
-         */                                     \
-        char *errorString;                      \
         \
         /**                                     \
          * The next operation in queue.         \
@@ -303,25 +326,25 @@ extern "C"
     /**
      * A basic operation
      */
-    typedef struct odbxuv_op_s
+    struct odbxuv_op_s
     {
         ODBXUV_OP_BASE_FIELDS
-    } odbxuv_op_t;
+    };
 
     /**
      * A disconnect operation
      */
-    typedef struct odbxuv_op_disconnect_s
+    struct odbxuv_op_disconnect_s
     {
         ODBXUV_OP_BASE_FIELDS
-    } odbxuv_op_disconnect_t;
+    };
 
     /**
      * A connect operation
      * \warning Don't forget to run ::odbxuv_op_connect_free_info
      * \sa odbxuv_op_connect_free_info
      */
-    typedef struct odbxuv_op_connect_s
+    struct odbxuv_op_connect_s
     {
         ODBXUV_OP_BASE_FIELDS
 
@@ -359,13 +382,13 @@ extern "C"
          * The method to connect to the database
          */
         int method;
-    } odbxuv_op_connect_t;
+    };
 
     /**
      * A capabilities request operation.
      * The \p error field contains the status of the capability.
      */
-    typedef struct odbxuv_op_capabilities_s
+    struct odbxuv_op_capabilities_s
     {
         ODBXUV_OP_BASE_FIELDS
 
@@ -373,39 +396,39 @@ extern "C"
          * The capabilities to query for.
          */
         int capabilities;
-    } odbxuv_op_capabilities_t;
+
+        /**
+         * The result
+         */
+        int result;
+    };
 
     /**
      * A string escape operation
      * \warning Don't forget to call ::odbxuv_op_escape_free_escape afterwards
      */
-    typedef struct odbxuv_op_escape_s
+    struct odbxuv_op_escape_s
     {
         ODBXUV_OP_BASE_FIELDS
 
         /**
          * The string to escape
          */
-        const char *string;
-    } odbxuv_op_escape_t;
+        char *string;
+    };
 
     /**
      * A query operation
      * \warning Don't forget to call ::odbxuv_op_query_free_query afterwards
      */
-    typedef struct odbxuv_op_query_s
+    struct odbxuv_op_query_s
     {
         ODBXUV_OP_BASE_FIELDS
 
         /**
          * The query string.
          */
-        const char *query;
-
-        /**
-         * The result object when the query succeeded.
-         */
-        odbxuv_result_t *queryResult;
+        char *query;
 
         /**
          * Query fetch flags
@@ -416,24 +439,11 @@ extern "C"
          * The amount of rows to fetch at once
          */
         int chunkSize;
-    } odbxuv_op_query_t;
-
-    /**
-     * The result of a query operation
-     * \warning Don't forget to call ::odbxuv_result_free to clean this up
-     */
-    typedef struct odbxuv_result_s
-    {
-        /**
-         * The reference to the connection
-         */
-        odbxuv_connection_t *connection;
 
         /**
-         * The odbx result of the query
-         * \private
+         * The odbx result handle
          */
-        odbx_result_t *queryResult;
+        odbx_result_t *resultHandle;
 
         /**
          * Amount of columns fetched
@@ -467,22 +477,20 @@ extern "C"
          */
         uv_async_t async;
 
-        /**
-         * Werther the query fetching has been finished
-         */
-        int finished;
+        unsigned char asyncStatus : 2;
 
         /**
-         * Userdata
+         * Werther the query fetching has been finished
+         * \private
          */
-        void *data;
-    } odbxuv_result_t;
+        odbxuv_fetch_status_e fetchStatus : 7;
+    };
 
     /**
      * Info about a column
      * Is part of a query result, is automatically freed and allocated
      */
-    typedef struct odbxuv_column_info_s
+    struct odbxuv_column_info_s
     {
         /**
          * The name of the column
@@ -497,12 +505,12 @@ extern "C"
          * \note Read only
          */
         int type;
-    } odbxuv_column_info_t;
+    };
 
     /**
      * A fetched row
      */
-    typedef struct odbxuv_row_s
+    struct odbxuv_row_s
     {
         /**
          * The status of the current row
@@ -523,7 +531,7 @@ extern "C"
          * \private
          */
         odbxuv_row_t *next;
-    } odbxuv_row_t;
+    };
 
     /**
      * \defgroup odbxuv Odbxuv global functions
@@ -537,16 +545,23 @@ extern "C"
     int odbxuv_init_connection(odbxuv_connection_t *connection, uv_loop_t *loop);
 
     /**
-     * Removes the connection from the loop
+     * Closes an odbx handle
      * \public
      */
-    int odbxuv_unref_connection(odbxuv_connection_t *connection);
+    void odbxuv_close(odbxuv_handle_t *handle, odbxuv_close_cb callback);
 
     /**
      * Frees the error string
      * \public
      */
-    int odbxuv_free_error(odbxuv_op_t *operation);
+    void odbxuv_free_error(odbxuv_op_t *operation);
+
+    /**
+     * Frees the internal allocated information of a handle
+     * Should be called just before free()
+     * \public
+     */
+    void odbxuv_free_handle(odbxuv_handle_t *result);
 
     /**
      * Connects to the database using the credentials specified in the \p operation.
@@ -563,7 +578,6 @@ extern "C"
 
     /**
      * Disconnects from the database.
-     * \note This does not call ::odbxuv_unref_connection
      * \public
      */
     int odbxuv_disconnect(odbxuv_connection_t *connection, odbxuv_op_disconnect_t *operation, odbxuv_op_disconnect_cb callback);
@@ -588,37 +602,19 @@ extern "C"
     void odbxuv_op_escape_free_escape(odbxuv_op_escape_t *op);
 
     /**
-     * Inits the connection with a result object and fetch flags
-     * \public
-     */
-    int odbxuv_init_query(odbxuv_op_query_t *operation, odbxuv_result_t *result, odbxuv_query_fetch_e flags);
-
-    /**
      * Runs a query on the database
      * \note The query string is internally copied
      * \public
      */
-    int odbxuv_query(odbxuv_connection_t *connection, odbxuv_op_query_t *operation, const char *query, odbxuv_op_query_cb callback);
+    int odbxuv_query(odbxuv_connection_t *connection, odbxuv_op_query_t *operation, const char *query, odbxuv_query_fetch_e flags, odbxuv_op_query_cb callback);
 
     /**
      * Starts processing the rows of a query
      * Should be called inside the ::odbxuv_op_query_cb callback
      * \public
      */
-    int odbxuv_query_process(odbxuv_result_t *result, odbxuv_fetch_cb onQueryRow);
+    int odbxuv_query_process(odbxuv_op_query_t *result, odbxuv_fetch_cb onQueryRow);
 
-    /**
-     * Cleans up the query result
-     * Should be caled from ::odbxuv_fetch_cb
-     * \public
-     */
-    int odbxuv_result_free(odbxuv_result_t *result);
-
-    /**
-     * Frees the query
-     * \public
-     */
-    void odbxuv_op_query_free_query(odbxuv_op_query_t *op);
 
     /**
      * \}

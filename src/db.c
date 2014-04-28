@@ -36,7 +36,7 @@
 
                 if(currentOperation->callback)
                 {
-                    currentOperation->callback(currentOperation, currentOperation->error);
+                    currentOperation->callback(currentOperation, currentOperation->error ? currentOperation->error->error : ODBX_ERR_SUCCESS);
                 }
             }
         }
@@ -81,6 +81,19 @@
         }
     }
 
+    void _handle_make_error(odbxuv_handle_t *handle, int errorNum, int errorType, const char *errorString)
+    {
+        odbxuv_error_t *error = malloc(sizeof(odbxuv_error_t));
+        memset(error, 0, sizeof(*error));
+        error->error = errorNum;
+        error->errorType = errorType;
+        char *msg = malloc(strlen(errorString)+1);
+        strcpy(msg, errorString);
+        error->errorString  = msg;
+        handle->error = error;
+        assert(errorNum != -ODBX_ERR_PARAM && "Internal error");
+    }
+
     /**
      * \internal
      * \private
@@ -88,13 +101,17 @@
     #define MAKE_ODBX_ERR(operation, result, func) \
         if(result < ODBX_ERR_SUCCESS) \
         { \
-            operation ->error = result; \
-            operation ->errorType = odbx_error_type( operation ->connection->handle, result ); \
-            const char *error = odbx_error( operation ->connection->handle, result ); \
-            operation ->errorString = malloc(strlen(error)+1); \
-            strcpy( operation ->errorString,  error); \
+            _handle_make_error((odbxuv_handle_t *)operation, result, odbx_error_type( operation->connection->handle, result), odbx_error(operation->connection->handle, result )); \
             func; \
             return 0; \
+        }
+
+    #define SET_0_COPY_DATA(obj)                        \
+        {                                               \
+            assert(obj && "Object is NULL");            \
+            void *data = obj->data;                     \
+            memset(obj, 0, sizeof(*obj));               \
+            obj->data = data;                           \
         }
 
 
@@ -139,7 +156,6 @@
             if(havePendingRequests > 0 && connection->workerStatus == ODBXUV_WORKER_IDLE)
             {
                 connection->workerStatus = ODBXUV_WORKER_RUNNING;
-                connection->async.data = connection;
                 memset(&connection->worker, 0, sizeof(connection->worker));
                 connection->worker.data = connection;
 
@@ -215,7 +231,7 @@
 
         });
 
-        op->error = result;
+        op->result = result;
 
         return 0;
     }
@@ -226,80 +242,69 @@
         odbxuv_op_query_t *op = (odbxuv_op_query_t *)req;
         assert(op->type == ODBXUV_HANDLE_TYPE_OP_QUERY);
 
+
         result = odbx_query(op->connection->handle, op->query, 0);
 
         MAKE_ODBX_ERR(op, result, {
-            op->queryResult->finished = 1;
+            op->fetchStatus = ODBXUV_FETCH_STATUS_ERROR_BEFORE;
         });
 
-        odbxuv_connection_t *connection = op->connection;
-        odbxuv_result_t *queryResult = op->queryResult;
-        int chunkSize = op->chunkSize;
-        odbxuv_query_fetch_e flags = op->flags;
         op->status = ODBXUV_OP_STATUS_COMPLETED;
-        op = NULL;
-        //TODO: fix error handling
-        uv_async_send(&connection->async);
+        op->fetchStatus = ODBXUV_FETCH_STATUS_RUNNING;
+        uv_async_send(&op->connection->async); //Note: the callback should not free the op!
 
         unsigned char didGetInfo = 0;
         do
         {
-            if(queryResult->queryResult != NULL)
+            if(op->resultHandle != NULL)
             {
-                result = odbx_result_finish(queryResult->queryResult);
+                result = odbx_result_finish(op->resultHandle);
 
                 MAKE_ODBX_ERR(op, result, {
-
+                    op->error->error = -result;
+                    op->fetchStatus = ODBXUV_FETCH_STATUS_ERROR_FINISH;
                 });
             }
 
             result = odbx_result(
-                connection->handle,
-                &queryResult->queryResult,
+                op->connection->handle,
+                &op->resultHandle,
                 NULL,
-                chunkSize);
+                op->chunkSize);
 
-            if (result < ODBX_ERR_SUCCESS)
-            {
-                if (odbx_error_type(connection->handle, result) > 0)
-                {
-                    continue; //Once more
-                }
-                else
-                {
-                    MAKE_ODBX_ERR(op, result, {
 
-                    });
-                }
-            }
+            MAKE_ODBX_ERR(op, result, {
+                op->error->error = -result;
+                op->fetchStatus = ODBXUV_FETCH_STATUS_ERROR_RESULT;
+            });
 
             if(didGetInfo == 0)
             {
                 didGetInfo = 1;
-                queryResult->columnCount = odbx_column_count(queryResult->queryResult);
-                queryResult->affectedCount = odbx_rows_affected(queryResult->queryResult);
+                op->columnCount = odbx_column_count(op->resultHandle);
+                op->affectedCount = odbx_rows_affected(op->resultHandle);
 
-                if(queryResult->columns == NULL)
+                if(op->columns == NULL && (op->flags & ODBXUV_QUERY_FETCH_NAME || op->flags & ODBXUV_QUERY_FETCH_TYPE))
                 {
                     {
-                        size_t len = sizeof(odbxuv_column_info_t) * queryResult->columnCount;
-                        queryResult->columns = malloc(len);
-                        memset(queryResult->columns, 0, len); //TODO: manually init with 0 if we need it ?
+                        size_t len = sizeof(odbxuv_column_info_t) * op->columnCount;
+                        op->columns = malloc(len);
+                        memset(op->columns, 0, len); //TODO: manually init with 0 if we need it ?
                     }
 
                     int i;
-                    for(i = 0; i < queryResult->columnCount; i++)
+                    for(i = 0; i < op->columnCount; i++)
                     {
-                        if(flags & ODBXUV_QUERY_FETCH_NAME)
+                        if(op->flags & ODBXUV_QUERY_FETCH_NAME)
                         {
-                            const char *name = odbx_column_name(queryResult->queryResult, i);
+                            const char *name = odbx_column_name(op->resultHandle, i);
 
-                            queryResult->columns[i].name = malloc(strlen(name)+1);
-                            strcpy(queryResult->columns[i].name, name);
+                            op->columns[i].name = malloc(strlen(name)+1);
+                            strcpy(op->columns[i].name, name);
                         }
-                        if(flags & ODBXUV_QUERY_FETCH_TYPE)
+                        if(op->flags & ODBXUV_QUERY_FETCH_TYPE)
                         {
-                            queryResult->columns[i].type = odbx_column_type(queryResult->queryResult, i);
+                            op->columns[i].type = odbx_column_type(op->resultHandle, i);
                         }
                     }
                 }
@@ -309,10 +314,10 @@
             {
                 case ODBX_RES_ROWS:
                     //fetch & see if there is more
-                    while(ODBX_ROW_NEXT == (result = odbx_row_fetch(queryResult->queryResult)))
+                    while(ODBX_ROW_NEXT == (result = odbx_row_fetch(op->resultHandle)))
                     {
-                        //Find an used row or create one
-                        odbxuv_row_t **row = &queryResult->row;
+                        //Find a unused row or create one
+                        odbxuv_row_t **row = &op->row;
 
                         do
                         {
@@ -337,14 +342,14 @@
                         (*row)->status = ODBXUV_ROW_STATUS_READING;
 
                         int i;
-                        for(i = 0; i < queryResult->columnCount; i++)
+                        for(i = 0; i < op->columnCount; i++)
                         {
-                            if(flags & ODBXUV_QUERY_FETCH_VALUE)
+                            if(op->flags & ODBXUV_QUERY_FETCH_VALUE)
                             {
                                 //Lazy init
                                 if((*row)->value == NULL)
                                 {
-                                    size_t len = sizeof(char *) * queryResult->columnCount;
+                                    size_t len = sizeof(char *) * op->columnCount;
                                     (*row)->value = malloc(len);
                                     memset((*row)->value, 0, len);
                                 }
@@ -354,10 +359,17 @@
                                     free((*row)->value[i]);
                                 }
 
-                                const char *value = odbx_field_value(queryResult->queryResult, i);
+                                const char *value = odbx_field_value(op->resultHandle, i);
 
-                                (*row)->value[i] = malloc(strlen(value)+1);
-                                strcpy((*row)->value[i], value);
+                                if(value)
+                                {
+                                    (*row)->value[i] = malloc(strlen(value)+1);
+                                    strcpy((*row)->value[i], value);
+                                }
+                                else
+                                {
+                                    (*row)->value[i] = NULL;
+                                }
                             }
 
                             //TODO fetch lengths
@@ -366,14 +378,17 @@
                         (*row)->status = ODBXUV_ROW_STATUS_READ;
 
                         //We have inited
-                        if(queryResult->async.data == queryResult)
+                        if(op->asyncStatus == 1)
                         {
-                            uv_async_send(&queryResult->async);
+                            uv_async_send(&op->async);
                         }
+
+                        if(op->fetchStatus == ODBXUV_FETCH_STATUS_CANCELLED) goto escape;
                     }
 
                     MAKE_ODBX_ERR(op, result, {
-
+                        op->error->error = -result;
+                        op->fetchStatus = ODBXUV_FETCH_STATUS_ERROR_FETCH;
                     });
 
                     continue;
@@ -386,25 +401,26 @@
                     break;
             }
         }
-        while(1);
+        while(op->fetchStatus != ODBXUV_FETCH_STATUS_CANCELLED);
 
         escape:
 
-        if(queryResult->queryResult != NULL)
+        if(op->resultHandle != NULL)
         {
-            result = odbx_result_finish(queryResult->queryResult);
+            result = odbx_result_finish(op->resultHandle);
 
             MAKE_ODBX_ERR(op, result, {
-
+                op->error->error = -result;
+                op->fetchStatus = ODBXUV_FETCH_STATUS_ERROR_FINISH;
             });
         }
 
-        if(queryResult->async.data == queryResult)
+        if(op->asyncStatus == 1)
         {
-            uv_async_send(&queryResult->async);
+            uv_async_send(&op->async);
         }
 
-        queryResult->finished = 1;
+        op->fetchStatus = ODBXUV_FETCH_STATUS_FINISHED;
 
         return ODBXUV_OP_STATUS_COMPLETED;
     }
@@ -432,7 +448,6 @@
 
         });
 
-        op->error = result;
         return 0;
     }
 
@@ -444,12 +459,13 @@
         operation->connection = connection;
         operation->operationFunction = fun;
         operation->callback = callback;
-        operation->error = ODBX_ERR_SUCCESS;
-        operation->errorString = NULL;
+        operation->error = NULL;
     }
 
     void _con_add_op(odbxuv_connection_t *connection, odbxuv_op_t *operation)
     {
+        assert(connection->status != ODBXUV_CON_STATUS_DISCONNECTING && "Cannot add operations while disconnecting");
+
         if(connection->operationQueue == NULL)
         {
             connection->operationQueue = operation;
@@ -470,8 +486,9 @@
 
     int odbxuv_init_connection(odbxuv_connection_t *connection, uv_loop_t *loop)
     {
-        memset(connection, 0, sizeof(odbxuv_connection_t));
+        SET_0_COPY_DATA(connection);
         connection->loop = loop;
+        connection->type = ODBXUV_HANDLE_TYPE_CONNECTION;
 
         memset(&connection->async, 0, sizeof(uv_async_t));
         connection->async.data = connection;
@@ -479,23 +496,6 @@
 
         return ODBX_ERR_SUCCESS;
     }
-
-    int odbxuv_unref_connection(odbxuv_connection_t *connection)
-    {
-        assert(connection->status != ODBXUV_CON_STATUS_CONNECTED && "Cannot unref a connection in progress");
-
-
-        uv_close((uv_handle_t *)&connection->async, NULL);
-
-        if(connection->workerStatus == ODBXUV_WORKER_RUNNING)
-        {
-            assert(0);
-            uv_cancel((uv_req_t *)&connection->worker);
-        }
-
-        return ODBX_ERR_SUCCESS;
-    }
-
 
     void odbxuv_op_connect_free_info(odbxuv_op_connect_t *op)
     {
@@ -519,8 +519,12 @@
 
         {
             #define _copys(name) \
-                char *name = malloc(strlen( operation->name )+1); \
-                strcpy( name , operation-> name );
+            char *name = NULL; \
+            if (operation->name) \
+            { \
+                name = malloc(strlen( operation->name )+1); \
+                strcpy( name , operation-> name ); \
+            }
                 _copys(host);
                 _copys(port);
                 _copys(backend);
@@ -531,7 +535,7 @@
 
             int method = operation->method;
 
-            memset(operation, 0, sizeof(&operation));
+            SET_0_COPY_DATA(operation);
 
             #define _copys(name) \
                 operation-> name = name;
@@ -546,7 +550,6 @@
             operation->method = method;
         }
 
-
         _init_op(ODBXUV_HANDLE_TYPE_OP_CONNECT, (odbxuv_op_t *)operation, connection, _op_connect, (odbxuv_op_cb)callback);
 
         _con_add_op(connection, (odbxuv_op_t *)operation);
@@ -558,26 +561,16 @@
 
     int odbxuv_disconnect(odbxuv_connection_t *connection, odbxuv_op_disconnect_t *operation, odbxuv_op_disconnect_cb callback)
     {
-        connection->status = ODBXUV_CON_STATUS_DISCONNECTING;
+        assert(connection->status == ODBXUV_CON_STATUS_CONNECTED);
 
-        memset(operation, 0, sizeof(&operation));
+        SET_0_COPY_DATA(operation);
 
         _init_op(ODBXUV_HANDLE_TYPE_OP_DISCONNECT, (odbxuv_op_t *)operation, connection, _op_disconnect, (odbxuv_op_cb)callback);
 
         _con_add_op(connection, (odbxuv_op_t *)operation);
+        connection->status = ODBXUV_CON_STATUS_DISCONNECTING;
 
         con_worker_check(connection);
-
-        return ODBX_ERR_SUCCESS;
-    }
-
-    int odbxuv_free_error(odbxuv_op_t *operation)
-    {
-        if(operation->errorString)
-        {
-            free(operation->errorString);
-            operation->errorString = NULL;
-        }
 
         return ODBX_ERR_SUCCESS;
     }
@@ -598,26 +591,19 @@
         return ODBX_ERR_SUCCESS;
     }
 
-    int odbxuv_init_query(odbxuv_op_query_t *operation, odbxuv_result_t *result, odbxuv_query_fetch_e flags)
-    {
-        memset(result, 0, sizeof(*result));
-        memset(operation, 0, sizeof(*operation));
-        operation->queryResult = result;
-        operation->flags = flags;
-    }
-
-    int odbxuv_query(odbxuv_connection_t *connection, odbxuv_op_query_t *operation, const char *query, odbxuv_op_query_cb callback)
+    int odbxuv_query(odbxuv_connection_t *connection, odbxuv_op_query_t *operation, const char *query, odbxuv_query_fetch_e flags, odbxuv_op_query_cb callback)
     {
         assert(connection->status == ODBXUV_CON_STATUS_CONNECTED);
-        assert(operation->queryResult != NULL && "Query was not initialized.");
 
+        SET_0_COPY_DATA(operation);
         _init_op(ODBXUV_HANDLE_TYPE_OP_QUERY, (odbxuv_op_t *)operation, connection, _op_query, (odbxuv_op_cb)callback);
+
+        operation->flags = flags;
 
         char *q = malloc(strlen(query) + 1);
         strcpy(q, query);
         operation->query = q;
-
-        operation->queryResult->connection = operation->connection;
+        operation->fetchStatus = ODBXUV_FETCH_STATUS_NONE;
 
         _con_add_op(connection, (odbxuv_op_t *)operation);
 
@@ -628,23 +614,44 @@
 
     static void _close_process(uv_handle_t *handle)
     {
-        odbxuv_result_t *result = (odbxuv_result_t *)handle->data;
-        result->cb(result, NULL);
+        odbxuv_op_query_t *op = (odbxuv_op_query_t *)handle->data;
+
+        int status = op->error ? op->error->error : 0;
+        switch(op->fetchStatus)
+        {
+            case ODBXUV_FETCH_STATUS_ERROR_FETCH:
+            case ODBXUV_FETCH_STATUS_ERROR_FINISH:
+            case ODBXUV_FETCH_STATUS_ERROR_RESULT:
+                if(status > 0)
+                {
+                    op->error->error = -op->error->error;
+                    status = op->error->error;
+                }
+                break;
+            default:
+                break;
+        }
+
+        op->asyncStatus = 3;
+        op->cb(op, NULL, status);
     }
 
-    static void _query_process_cb_real(odbxuv_result_t *result)
+    static void _query_process_cb_real(odbxuv_op_query_t *result)
     {
         odbxuv_row_t *row = result->row;
 
         while(row)
         {
-            result->cb(result, row);
+            result->cb(result, row, 0);
             row = row->next;
         }
 
-        if(result->finished == 1)
+        if(result->fetchStatus == ODBXUV_FETCH_STATUS_RUNNING) return;
+
+        if(result->asyncStatus == 1)
         {
-            result->finished = 2;
+            result->asyncStatus = 2;
+
             //Clean up async
             uv_close((uv_handle_t *)&result->async, _close_process);
         }
@@ -652,78 +659,29 @@
 
     static void _query_process_cb(uv_async_t* handle, int status)
     {
-        //TODO: run read callbacks here
-        odbxuv_result_t *result = (odbxuv_result_t *)handle->data;
+        odbxuv_op_query_t *result = (odbxuv_op_query_t *)handle->data;
         _query_process_cb_real(result);
     }
 
-    int odbxuv_query_process(odbxuv_result_t *result, odbxuv_fetch_cb onQueryRow)
+    int odbxuv_query_process(odbxuv_op_query_t *result, odbxuv_fetch_cb onQueryRow)
     {
+        assert(result->asyncStatus == 0 && "We are already fetching on this handle");
         memset(&result->async, 0, sizeof(uv_async_t));
         result->async.data = result;
         result->cb = onQueryRow;
         uv_async_init(result->connection->loop, &result->async, _query_process_cb);
-        if(result->row != NULL)
-        {
-            _query_process_cb(&result->async, 0);
-        }
-    }
+        result->asyncStatus = 1;
 
-    int odbxuv_result_free(odbxuv_result_t *result)
-    {
-        assert(result->finished);
-        odbxuv_row_t *row = result->row;
-        result->row = NULL;
+        _query_process_cb(&result->async, 0);
 
-        while(row)
-        {
-            odbxuv_row_t *next = row->next;
-
-            if(row->value)
-            {
-                int i;
-                for(i = 0; i < result->columnCount; i++)
-                {
-                    free(row->value[i]);
-                }
-
-                free(row->value);
-            }
-
-            free(row);
-            row = next;
-        }
-
-        if(result->columns)
-        {
-            int i;
-            for(i = 0; i < result->columnCount; i++)
-            {
-                free(result->columns[i].name);
-            }
-            free(result->columns);
-        }
-    }
-
-    void odbxuv_op_query_free_query(odbxuv_op_query_t* op)
-    {
-        if(op->queryResult && op->queryResult->finished)
-        {
-            _query_process_cb_real(op->queryResult);
-        }
-
-        if(op->query)
-        {
-            free((void *)op->query);
-            op->query = NULL;
-        }
+        return ODBX_ERR_SUCCESS;
     }
 
     int odbxuv_escape(odbxuv_connection_t *connection, odbxuv_op_escape_t *operation, const char *string, odbxuv_op_escape_cb callback)
     {
         assert(connection->status == ODBXUV_CON_STATUS_CONNECTED);
 
-        memset(operation, 0, sizeof(&operation));
+        SET_0_COPY_DATA(operation);
         _init_op(ODBXUV_HANDLE_TYPE_OP_ESCAPE, (odbxuv_op_t *)operation, connection, _op_escape, (odbxuv_op_cb)callback);
 
         char *q = malloc(strlen(string) + 1);
@@ -745,3 +703,131 @@
             op->string = NULL;
         }
     }
+
+typedef struct _odbxuv_closing_data_s
+{
+    odbxuv_connection_t *connection;
+    odbxuv_close_cb cb;
+} _odbxuv_closing_data_t;
+
+static void _close_connection_async(uv_handle_t *handle)
+{
+    _odbxuv_closing_data_t *data = (_odbxuv_closing_data_t *)handle->data;
+    handle->data = NULL;
+    data->cb((odbxuv_handle_t *)data->connection);
+    free(data);
+}
+
+static void _close_connection(odbxuv_op_disconnect_t *op, int status)
+{
+    odbxuv_close_cb cb = (odbxuv_close_cb)op->data;
+    odbxuv_connection_t *connection = op->connection;
+    free(op);
+
+    assert(connection->workerStatus == ODBXUV_WORKER_IDLE && "Worker did not close after disconnect");
+    {
+        _odbxuv_closing_data_t *data = malloc(sizeof(_odbxuv_closing_data_t));
+        data->connection = connection;
+        data->cb = cb;
+        connection->async.data = data;//Worker is not running, we can abuse this
+        uv_close((uv_handle_t *)&connection->async, _close_connection_async);
+    }
+}
+
+void odbxuv_close(odbxuv_handle_t* handle, odbxuv_close_cb callback)
+{
+    switch(handle->type)
+    {
+        case ODBXUV_HANDLE_TYPE_CONNECTION:
+        {
+            odbxuv_connection_t *con = (odbxuv_connection_t *)handle;
+            odbxuv_op_disconnect_t *op = (odbxuv_op_disconnect_t *)malloc(sizeof(odbxuv_op_disconnect_t));
+            op->data = callback;
+            odbxuv_disconnect(con, op, _close_connection);
+        }
+        break;
+
+        default:
+            assert(0 && "Invalid handle type to close");
+            callback(handle);
+            break;
+    }
+}
+
+void odbxuv_free_error(odbxuv_op_t *operation)
+{
+    if(operation->error != NULL)
+    {
+        free(operation->error);
+        operation->error = NULL;
+    }
+}
+
+#define ODBXUV_FREE_STRING(var) \
+    if(var != NULL)             \
+    {                           \
+        char *_str = var;       \
+        var = NULL;             \
+        free(_str);             \
+    }
+
+void odbxuv_free_handle(odbxuv_handle_t* handle)
+{
+    switch(handle->type)
+    {
+        case ODBXUV_HANDLE_TYPE_OP_QUERY:
+        {
+            odbxuv_op_query_t *query = (odbxuv_op_query_t *)handle;
+            assert(query->fetchStatus != ODBXUV_FETCH_STATUS_RUNNING && "Can't run free while fetching");
+            ODBXUV_FREE_STRING(query->query);
+
+            odbxuv_row_t *row = query->row;
+            query->row = NULL;
+
+            while(row)
+            {
+                odbxuv_row_t *next = row->next;
+
+                if(row->value)
+                {
+                    int i;
+                    for(i = 0; i < query->columnCount; i++)
+                    {
+                        if(row->value[i])
+                        {
+                            free(row->value[i]);
+                        }
+                    }
+
+                    free(row->value);
+                }
+
+                free(row);
+                row = next;
+            }
+
+            if(query->columns)
+            {
+                int i;
+                for(i = 0; i < query->columnCount; i++)
+                {
+                    free(query->columns[i].name);
+                }
+                free(query->columns);
+            }
+        }
+        break;
+
+        case ODBXUV_HANDLE_TYPE_OP_ESCAPE:
+        {
+            odbxuv_op_escape_t *op = (odbxuv_op_escape_t *)handle;
+
+            ODBXUV_FREE_STRING(op->string);
+        }
+        break;
+        
+        default:
+            assert(0 && "Invalid handle type");
+            break;
+    }
+}

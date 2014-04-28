@@ -8,22 +8,25 @@
 uv_loop_t *loop;
 odbxuv_connection_t connection;
 
-void onDisconnect(odbxuv_op_disconnect_t *req, int status)
+void onDisconnect(odbxuv_handle_t *handle)
 {
-    if(status < ODBX_ERR_SUCCESS)
-    {
-        printf("Failed to disconnect status: %i (%i)-> %s\n", status, req->errorType, req->errorString);
-        odbxuv_free_error((odbxuv_op_t *)req);
-    }
-
-    odbxuv_unref_connection(req->connection);
-    free(req);
+    //odbxuv_connection_t *con = (odbxuv_connection_t *)handle;
+    printf("Disconnected %p\n", handle);
+    //free(con); No need to free here, we did not allocate the connection on the heap
 }
 
 static int queriesFinished = 0;
 
-void onQueryRow(odbxuv_result_t *result, odbxuv_row_t *row)
+void onQueryRow(odbxuv_op_query_t *result, odbxuv_row_t *row, int status)
 {
+    printf("onQueryRow\n");
+
+    if(status < ODBX_ERR_SUCCESS)
+    {
+        printf("Fetch error %i (%i) %s (status:%i)\n", result->error->error, result->error->errorType, result->error->errorString, result->fetchStatus);
+        odbxuv_free_error((odbxuv_op_t *)result);
+    }
+
     if(row)
     {
         printf("Row!:");
@@ -40,11 +43,11 @@ void onQueryRow(odbxuv_result_t *result, odbxuv_row_t *row)
 
         if(queriesFinished == 10)
         {
-            odbxuv_op_disconnect_t *op = (odbxuv_op_disconnect_t *)malloc(sizeof(odbxuv_op_disconnect_t));
-            odbxuv_disconnect(result->connection, op, onDisconnect);
+            odbxuv_close((odbxuv_handle_t *)result->connection, onDisconnect);
         }
 
-        odbxuv_result_free(result);
+        printf("Finished query %p\n", result);
+        odbxuv_free_handle((odbxuv_handle_t *)result);
         free(result);
     }
 }
@@ -53,33 +56,28 @@ void onQuery(odbxuv_op_query_t *req, int status)
 {
     if(status < ODBX_ERR_SUCCESS)
     {
-        printf("Failed to query status: %i (%i)-> %s\n", status, req->errorType, req->errorString);
-        odbxuv_free_error((odbxuv_op_t *)req);
-        odbxuv_result_free(req->queryResult);
-        free(req->queryResult);
+        printf("Failed to query status: %i (%i)-> %s\n", req->error->error, req->error->errorType, req->error->errorString);
+        odbxuv_free_handle((odbxuv_handle_t *)req);
+        free(req);
 
         queriesFinished ++;
 
         if(queriesFinished == 10)
         {
-            odbxuv_op_disconnect_t *op = (odbxuv_op_disconnect_t *)malloc(sizeof(odbxuv_op_disconnect_t));
-            odbxuv_disconnect(req->connection, op, onDisconnect);
+            odbxuv_close((odbxuv_handle_t *)req->connection, onDisconnect);
         }
     }
     else
     {
-        odbxuv_query_process(req->queryResult, onQueryRow);
+        odbxuv_query_process(req, onQueryRow);
     }
-
-    odbxuv_op_query_free_query(req);
-    free(req);
 }
 
 void onEscape(odbxuv_op_escape_t *req, int status)
 {
     if(status < ODBX_ERR_SUCCESS)
     {
-        printf("Failed to escape status: %i (%i)-> %s\n", status, req->errorType, req->errorString);
+        printf("Failed to escape status: %i (%i)-> %s\n", req->error->error, req->error->errorType, req->error->errorString);
         odbxuv_free_error((odbxuv_op_t *)req);
     }
 
@@ -89,13 +87,11 @@ void onEscape(odbxuv_op_escape_t *req, int status)
     for(; i < 10; i++)
     {
         odbxuv_op_query_t *op = (odbxuv_op_query_t *)malloc(sizeof(odbxuv_op_query_t));
-        const char *string = "SELECT * FROM test;";
-        odbxuv_result_t *result = malloc(sizeof(odbxuv_result_t));
-        odbxuv_init_query(op, result, ~0);
-        odbxuv_query(req->connection, op, string, onQuery);
+        const char *string = "SHOW DATABASES;";
+        odbxuv_query(req->connection, op, string, ~0, onQuery);
     }
 
-    odbxuv_op_escape_free_escape(req);
+    odbxuv_free_handle((odbxuv_handle_t *)req);
     free(req);
 }
 
@@ -105,12 +101,12 @@ void onCapatibilities(odbxuv_op_capabilities_t *req, int status)
     i++;
     if(status < ODBX_ERR_SUCCESS)
     {
-        printf("compatibility status: %i (%i)-> %s\n", status, req->errorType, req->errorString);
+        printf("compatibility status: %i (%i)-> %s\n", req->error->error, req->error->errorType, req->error->errorString);
         odbxuv_free_error((odbxuv_op_t *)req);
     }
     else
     {
-        printf("I have %i = %s(%i)\n", req->capabilities, status == ODBX_ENABLE ? "enabled" : (status == ODBX_DISABLE ? "disabled" : "unkown"), status);
+        printf("I have %i = %s(%i)\n", req->capabilities, req->result == ODBX_ENABLE ? "enabled" : (req->result == ODBX_DISABLE ? "disabled" : "unkown"), req->result);
     }
 
     if(i == 2)
@@ -126,9 +122,9 @@ void onConnect(odbxuv_op_connect_t *req, int status)
 {
     if(status < ODBX_ERR_SUCCESS)
     {
-        printf("Connect status: %i (%i)-> %s\n", status, req->errorType, req->errorString);
+        printf("Connect status: %i (%i)-> %s\n", req->error->error, req->error->errorType, req->error->errorString);
         odbxuv_free_error((odbxuv_op_t *)req);
-        odbxuv_unref_connection(req->connection);
+        odbxuv_close((odbxuv_handle_t *)req->connection, onDisconnect);
     }
     else
     {
@@ -161,13 +157,13 @@ int main()
     odbxuv_op_connect_t op;
 
     //NOTE: sqlite doesn't seem to generate proper errors.
-    op.backend = "sqlite3";
+    op.backend = "mysql";
     op.host = "";
     op.port = "";
 
-    op.database = "./test.sqlite";
-    op.user = "";
-    op.password = "";
+    op.database = "test";
+    op.user = "test";
+    op.password = "test";
 
     op.method = ODBX_BIND_SIMPLE;
 
