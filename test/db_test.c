@@ -24,7 +24,7 @@ void onQueryRow(odbxuv_op_query_t *result, odbxuv_row_t *row, int status)
     if(status < ODBX_ERR_SUCCESS)
     {
         printf("Fetch error %i (%i) %s (status:%i)\n", result->error->error, result->error->errorType, result->error->errorString, result->fetchStatus);
-        odbxuv_free_error((odbxuv_op_t *)result);
+        odbxuv_free_error((odbxuv_handle_t *)result);
     }
 
     if(row)
@@ -78,7 +78,7 @@ void onEscape(odbxuv_op_escape_t *req, int status)
     if(status < ODBX_ERR_SUCCESS)
     {
         printf("Failed to escape status: %i (%i)-> %s\n", req->error->error, req->error->errorType, req->error->errorString);
-        odbxuv_free_error((odbxuv_op_t *)req);
+        odbxuv_free_error((odbxuv_handle_t *)req);
     }
 
     printf("Escaped to: %s(%lu)\n", req->string, strlen(req->string));
@@ -102,7 +102,7 @@ void onCapatibilities(odbxuv_op_capabilities_t *req, int status)
     if(status < ODBX_ERR_SUCCESS)
     {
         printf("compatibility status: %i (%i)-> %s\n", req->error->error, req->error->errorType, req->error->errorString);
-        odbxuv_free_error((odbxuv_op_t *)req);
+        odbxuv_free_error((odbxuv_handle_t *)req);
     }
     else
     {
@@ -123,7 +123,7 @@ void onConnect(odbxuv_op_connect_t *req, int status)
     if(status < ODBX_ERR_SUCCESS)
     {
         printf("Connect status: %i (%i)-> %s\n", req->error->error, req->error->errorType, req->error->errorString);
-        odbxuv_free_error((odbxuv_op_t *)req);
+        odbxuv_free_error((odbxuv_handle_t *)req);
         odbxuv_close((odbxuv_handle_t *)req->connection, onDisconnect);
     }
     else

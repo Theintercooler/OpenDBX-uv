@@ -214,7 +214,7 @@
             op->connection->status = ODBXUV_CON_STATUS_IDLE;
         });
 
-        op->connection->status = ODBXUV_CON_STATUS_IDLE;
+        op->connection->status = ODBXUV_CON_STATUS_DISCONNECTED;
 
         return 0;
     }
@@ -489,6 +489,7 @@
         SET_0_COPY_DATA(connection);
         connection->loop = loop;
         connection->type = ODBXUV_HANDLE_TYPE_CONNECTION;
+        connection->workerStatus = ODBXUV_WORKER_IDLE;
 
         memset(&connection->async, 0, sizeof(uv_async_t));
         connection->async.data = connection;
@@ -515,6 +516,7 @@
 
     int odbxuv_connect(odbxuv_connection_t *connection, odbxuv_op_connect_t *operation, odbxuv_op_connect_cb callback)
     {
+        assert(connection->status == ODBXUV_CON_STATUS_IDLE || connection->status == ODBXUV_CON_STATUS_DISCONNECTED);
         connection->status = ODBXUV_CON_STATUS_CONNECTING;
 
         {
@@ -616,6 +618,8 @@
     {
         odbxuv_op_query_t *op = (odbxuv_op_query_t *)handle->data;
 
+        assert(op->type == ODBXUV_HANDLE_TYPE_OP_QUERY && "Close callback for non query.");
+
         int status = op->error ? op->error->error : 0;
         switch(op->fetchStatus)
         {
@@ -708,12 +712,14 @@ typedef struct _odbxuv_closing_data_s
 {
     odbxuv_connection_t *connection;
     odbxuv_close_cb cb;
+    odbxuv_error_t *error;
 } _odbxuv_closing_data_t;
 
 static void _close_connection_async(uv_handle_t *handle)
 {
     _odbxuv_closing_data_t *data = (_odbxuv_closing_data_t *)handle->data;
     handle->data = NULL;
+    data->connection->error = data->error;
     data->cb((odbxuv_handle_t *)data->connection);
     free(data);
 }
@@ -729,6 +735,7 @@ static void _close_connection(odbxuv_op_disconnect_t *op, int status)
         _odbxuv_closing_data_t *data = malloc(sizeof(_odbxuv_closing_data_t));
         data->connection = connection;
         data->cb = cb;
+        data->error = op->error;
         connection->async.data = data;//Worker is not running, we can abuse this
         uv_close((uv_handle_t *)&connection->async, _close_connection_async);
     }
@@ -743,8 +750,21 @@ void odbxuv_close(odbxuv_handle_t* handle, odbxuv_close_cb callback)
             odbxuv_connection_t *con = (odbxuv_connection_t *)handle;
             odbxuv_op_disconnect_t *op = (odbxuv_op_disconnect_t *)malloc(sizeof(odbxuv_op_disconnect_t));
             op->data = callback;
-            odbxuv_disconnect(con, op, _close_connection);
+
+            if(con->status == ODBXUV_CON_STATUS_CONNECTED)
+            {
+                odbxuv_disconnect(con, op, _close_connection);
+            }
+            else
+            {
+                op->connection = con;
+                _close_connection(op, 0);
+            }
         }
+        break;
+
+        case ODBXUV_HANDLE_TYPE_OP_QUERY:
+            callback(handle); //Nothing to do
         break;
 
         default:
@@ -754,7 +774,7 @@ void odbxuv_close(odbxuv_handle_t* handle, odbxuv_close_cb callback)
     }
 }
 
-void odbxuv_free_error(odbxuv_op_t *operation)
+void odbxuv_free_error(odbxuv_handle_t *operation)
 {
     if(operation->error != NULL)
     {
@@ -825,7 +845,10 @@ void odbxuv_free_handle(odbxuv_handle_t* handle)
             ODBXUV_FREE_STRING(op->string);
         }
         break;
-        
+
+        case ODBXUV_HANDLE_TYPE_CONNECTION:
+            break;
+
         default:
             assert(0 && "Invalid handle type");
             break;

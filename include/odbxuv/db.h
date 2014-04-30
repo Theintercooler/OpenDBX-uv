@@ -28,6 +28,7 @@ extern "C"
         ODBXUV_CON_STATUS_CONNECTING,
         ODBXUV_CON_STATUS_CONNECTED,
         ODBXUV_CON_STATUS_DISCONNECTING,
+        ODBXUV_CON_STATUS_DISCONNECTED,
         ODBXUV_CON_STATUS_FAILED
     } odbxuv_connection_status_e;
 
@@ -554,7 +555,7 @@ extern "C"
      * Frees the error string
      * \public
      */
-    void odbxuv_free_error(odbxuv_op_t *operation);
+    void odbxuv_free_error(odbxuv_handle_t *handle);
 
     /**
      * Frees the internal allocated information of a handle
