@@ -728,7 +728,6 @@ static void _close_connection(odbxuv_op_disconnect_t *op, int status)
 {
     odbxuv_close_cb cb = (odbxuv_close_cb)op->data;
     odbxuv_connection_t *connection = op->connection;
-    free(op);
 
     assert(connection->workerStatus == ODBXUV_WORKER_IDLE && "Worker did not close after disconnect");
     {
@@ -739,6 +738,8 @@ static void _close_connection(odbxuv_op_disconnect_t *op, int status)
         connection->async.data = data;//Worker is not running, we can abuse this
         uv_close((uv_handle_t *)&connection->async, _close_connection_async);
     }
+
+    free(op);
 }
 
 void odbxuv_close(odbxuv_handle_t* handle, odbxuv_close_cb callback)
