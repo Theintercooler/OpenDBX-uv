@@ -42,7 +42,7 @@
         }
     }
 
-    static void _op_run_callbacks(uv_async_t *handle, int status)
+    static void _op_run_callbacks(uv_async_t *handle)
     {
         _op_run_callbacks_real((odbxuv_connection_t *)handle->data);
     }
@@ -661,7 +661,7 @@
         }
     }
 
-    static void _query_process_cb(uv_async_t* handle, int status)
+    static void _query_process_cb(uv_async_t* handle)
     {
         odbxuv_op_query_t *result = (odbxuv_op_query_t *)handle->data;
         _query_process_cb_real(result);
@@ -676,7 +676,7 @@
         uv_async_init(result->connection->loop, &result->async, _query_process_cb);
         result->asyncStatus = 1;
 
-        _query_process_cb(&result->async, 0);
+        _query_process_cb(&result->async);
 
         return ODBX_ERR_SUCCESS;
     }
