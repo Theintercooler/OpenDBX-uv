@@ -106,6 +106,13 @@ extern "C"
         ODBXUV_FETCH_STATUS_CANCELLED
     } odbxuv_fetch_status_e;
 
+    typedef enum odbxuv_fetch_cb_status_enum
+    {
+        ODBXUV_FETCH_CB_STATUS_NONE = 0,
+        ODBXUV_FETCH_CB_STATUS_FIRST,
+        ODBXUV_FETCH_CB_STATUS_CALLED
+    } odbxuv_fetch_cb_status_e;
+
     /**
      * \}
      * \}
@@ -275,6 +282,7 @@ extern "C"
     /**
      * Callback invoked once per fetched row
      * Is called with NULL as row after the last row
+     * Status may be 1 to indicate this is the first time we call the fetch callback
      * \warning Make sure you cleanup the result using ::odbxuv_result_free and free when row is NULL
      */
     typedef void (*odbxuv_fetch_cb) (odbxuv_op_query_t *result, odbxuv_row_t *row, int status);
@@ -484,7 +492,13 @@ extern "C"
          * Werther the query fetching has been finished
          * \private
          */
-        odbxuv_fetch_status_e fetchStatus : 7;
+        odbxuv_fetch_status_e fetchStatus : 4;
+
+        /**
+         * Werther the fetch callback has been called with fetch_first status yet
+         * \private
+         */
+        odbxuv_fetch_cb_status_e fetchCallbackStatus : 2;
     };
 
     /**

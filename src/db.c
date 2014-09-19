@@ -646,7 +646,8 @@
 
         while(row)
         {
-            result->cb(result, row, 0);
+            result->cb(result, row, result->fetchCallbackStatus == ODBXUV_FETCH_CB_STATUS_NONE ? ODBXUV_FETCH_CB_STATUS_FIRST : 0);
+            result->fetchCallbackStatus = result->fetchCallbackStatus == ODBXUV_FETCH_CB_STATUS_NONE ? ODBXUV_FETCH_CB_STATUS_CALLED : result->fetchCallbackStatus;
             row = row->next;
         }
 
@@ -848,6 +849,22 @@ void odbxuv_free_handle(odbxuv_handle_t* handle)
         break;
 
         case ODBXUV_HANDLE_TYPE_CONNECTION:
+            break;
+
+        case ODBXUV_HANDLE_TYPE_OP_CONNECT:
+        {
+            odbxuv_op_connect_t *op = (odbxuv_op_connect_t *)handle;
+            free((void *)op->host);
+            free((void *)op->port);
+            free((void *)op->backend);
+            free((void *)op->database);
+            free((void *)op->user);
+            free((void *)op->password);
+        }
+        break;
+
+        case ODBXUV_HANDLE_TYPE_OP_DISCONNECT:
+            // Nothing to do
             break;
 
         default:
