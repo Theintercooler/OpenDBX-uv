@@ -139,7 +139,7 @@ void onConnect(odbxuv_op_connect_t *req, int status)
         }
     }
 
-    odbxuv_op_connect_free_info(req);
+    odbxuv_free_handle((odbxuv_handle_t *)req);
 }
 
 static void _walk_cb(uv_handle_t *handle, void *data)

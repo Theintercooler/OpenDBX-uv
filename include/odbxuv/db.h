@@ -350,8 +350,7 @@ extern "C"
 
     /**
      * A connect operation
-     * \warning Don't forget to run ::odbxuv_op_connect_free_info
-     * \sa odbxuv_op_connect_free_info
+     * \warning Don't forget to run ::odbxuv_op_free
      */
     struct odbxuv_op_connect_s
     {
@@ -586,12 +585,6 @@ extern "C"
     int odbxuv_connect(odbxuv_connection_t *connection, odbxuv_op_connect_t *operation, odbxuv_op_connect_cb callback);
 
     /**
-     * Frees the connection credentials from the \p operation
-     * \public
-     */
-    void odbxuv_op_connect_free_info(odbxuv_op_connect_t *operation);
-
-    /**
      * Disconnects from the database.
      * \public
      */
@@ -609,12 +602,6 @@ extern "C"
      * \public
      */
     int odbxuv_escape(odbxuv_connection_t *connection, odbxuv_op_escape_t *operation, const char *string, odbxuv_op_escape_cb callback);
-
-    /**
-     * Frees the value from the escape
-     * \public
-     */
-    void odbxuv_op_escape_free_escape(odbxuv_op_escape_t *op);
 
     /**
      * Runs a query on the database
