@@ -641,7 +641,7 @@ static void _query_process_cb_real(odbxuv_op_query_t *result)
 
     while(row)
     {
-        result->cb(result, row, result->fetchCallbackStatus == ODBXUV_FETCH_CB_STATUS_NONE ? ODBXUV_FETCH_CB_STATUS_FIRST : 0);
+        result->cb(result, row, 0);
         result->fetchCallbackStatus = result->fetchCallbackStatus == ODBXUV_FETCH_CB_STATUS_NONE ? ODBXUV_FETCH_CB_STATUS_CALLED : result->fetchCallbackStatus;
         row = row->next;
     }

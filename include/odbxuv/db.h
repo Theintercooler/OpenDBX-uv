@@ -109,7 +109,6 @@ extern "C"
     typedef enum odbxuv_fetch_cb_status_enum
     {
         ODBXUV_FETCH_CB_STATUS_NONE = 0,
-        ODBXUV_FETCH_CB_STATUS_FIRST,
         ODBXUV_FETCH_CB_STATUS_CALLED
     } odbxuv_fetch_cb_status_e;
 
