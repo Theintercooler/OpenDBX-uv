@@ -751,6 +751,7 @@ void odbxuv_close(odbxuv_handle_t* handle, odbxuv_close_cb callback)
         }
         break;
 
+        case ODBXUV_HANDLE_TYPE_OP_ESCAPE:
         case ODBXUV_HANDLE_TYPE_OP_QUERY:
             callback(handle); //Nothing to do
         break;
