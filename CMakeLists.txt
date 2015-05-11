@@ -52,6 +52,8 @@ include_directories(${ODBXUV_INCLUDE_DIRS})
 add_library(${ODBXUV_LIBRARY} ${ODBXUV_MODE}
     ${ODBXUV_SOURCES})
 
+target_link_libraries(${ODBXUV_LIBRARIES} ${OPENDBX_LIBRARIES})
+
 set(ODBXUV_BUILD_TESTS 1)
 
 if(${ODBXUV_BUILD_TESTS})
